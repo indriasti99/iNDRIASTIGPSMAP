@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>iNDRIASTIGPSMAP — GPS Map & Timestamp Camera INDRI ASTI</title>
+  <meta name="description" content="Aplikasi Kamera GPS Map dan Timestamp Lapangan dengan kompresi foto presisi target 200 KB, stempel GPS akurat, dan penyimpanan langsung ke galeri Android.">
+  <meta name="theme-color" content="#0b1329">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="stylesheet" href="style.css">
+  <!-- Capacitor Native Runtime Bridge (diisi otomatis oleh WebView Android) -->
+  <script src="capacitor.js" onerror="console.log('Running in browser mode / web fallback')"></script>
+</head>
+<body>
+
+  <!-- Top Application Header -->
+  <header class="app-header">
+    <div class="header-brand">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
+          <circle cx="12" cy="9" r="2.5"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="brand-title">iNDRIASTIGPSMAP</h1>
+        <p class="brand-subtitle">GPS Map & Timestamp Camera • INDRI ASTI</p>
+      </div>
+    </div>
+
+    <!-- Satellite / GPS Status Banner -->
+    <div class="header-status">
+      <div class="status-badge" id="gps-status-badge" title="Status GPS">
+        <span class="status-pulse searching" id="gps-status-dot"></span>
+        <span id="gps-status-text">Mencari lokasi GPS...</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Location Disabled Warning Banner (Tampil jika GPS mati di Android) -->
+  <div class="gps-alert-banner" id="gps-alert-banner" style="display: none;">
+    <div class="gps-alert-content">
+      <span class="gps-alert-icon">⚠️</span>
+      <div class="gps-alert-text">
+        <strong>Layanan Lokasi Nonaktif</strong>
+        <p>Aktifkan GPS agar koordinat dan stempel lokasi dapat dicatat dengan akurat.</p>
+      </div>
+    </div>
+    <button class="btn-open-settings" id="btn-open-settings">
+      ⚙️ Buka Pengaturan Lokasi
+    </button>
+  </div>
+
+  <!-- Main Viewport / Camera Viewfinder -->
+  <main class="main-viewport">
+    
+    <div class="viewfinder-container" id="viewfinder-container">
+      
+      <!-- Live Video Element -->
+      <video id="camera-video" playsinline autoplay muted></video>
+      
+      <!-- Offscreen Canvas for Processing & Compression -->
+      <canvas id="capture-canvas" style="display: none;"></canvas>
+      <canvas id="radar-canvas" width="80" height="80" style="display: none;"></canvas>
+
+      <!-- Viewfinder Shutter Flash Effect -->
+      <div class="viewfinder-flash" id="viewfinder-flash"></div>
+
+      <!-- Top Overlay Controls inside Viewfinder -->
+      <div class="viewfinder-top-bar">
+        <div class="telemetry-pill" id="telemetry-pill">
+          <span class="pill-icon">🛰️</span>
+          <span id="pill-acc-text">Mencari satelit...</span>
+        </div>
+
+        <div class="viewfinder-quick-actions">
+          <button class="icon-btn" id="btn-torch" title="Senter / Flash" style="display: none;">
+            ⚡
+          </button>
+          <button class="icon-btn" id="btn-switch-camera" title="Ganti Kamera Depan/Belakang">
+            🔄
+          </button>
+          <button class="icon-btn" id="btn-native-camera" title="Gunakan Kamera Bawaan Android">
+            📸
+          </button>
+        </div>
+      </div>
+
+      <!-- Live GPS Watermark Overlay on Viewfinder -->
+      <div class="live-watermark-overlay" id="live-watermark-overlay">
+        <div class="watermark-card" id="watermark-card">
+          
+          <!-- Mini Map / Tactical Compass Radar -->
+          <div class="watermark-map-box">
+            <canvas id="live-radar-canvas" width="76" height="76"></canvas>
+            <div class="radar-compass-text" id="live-compass-text">0° U</div>
+          </div>
+
+          <!-- Watermark Metadata Content -->
+          <div class="watermark-content">
+            <div class="watermark-header">
+              <span class="wm-app-name">iNDRIASTIGPSMAP</span>
+              <span class="wm-badge">INDRI ASTI</span>
+            </div>
+
+            <div class="wm-row wm-datetime">
+              <span class="wm-icon">🕒</span>
+              <span id="live-time-val">Memuat waktu...</span>
+            </div>
+
+            <div class="wm-row wm-coords">
+              <span class="wm-icon">📍</span>
+              <span id="live-coords-val">Mencari lokasi GPS...</span>
+            </div>
+
+            <div class="wm-row wm-metrics">
+              <span class="wm-icon">🧭</span>
+              <span id="live-metrics-val">Akurasi: Menghitung • Elevasi: -- m</span>
+            </div>
+
+            <div class="wm-row wm-note" id="live-note-row">
+              <span class="wm-icon">📝</span>
+              <span id="live-note-val">Dokumentasi Survei Lapangan</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Bottom Camera Controls Bar -->
+    <div class="camera-controls-bar">
+      <!-- Gallery Quick View -->
+      <button class="ctrl-btn-round" id="btn-open-gallery" title="Buka Galeri Foto">
+        <div class="gallery-thumb-preview" id="gallery-thumb-preview">
+          <span>🖼️</span>
+        </div>
+        <span class="badge-count" id="gallery-count">0</span>
+      </button>
+
+      <!-- Main Shutter Button -->
+      <button class="shutter-button" id="btn-shutter" title="Ambil Foto">
+        <div class="shutter-inner">
+          <div class="shutter-core"></div>
+        </div>
+      </button>
+
+      <!-- Settings / Options Button -->
+      <button class="ctrl-btn-round" id="btn-open-settings-modal" title="Pengaturan">
+        <span>⚙️</span>
+      </button>
+    </div>
+
+  </main>
+
+  <!-- =========================================================================
+       PHOTO PREVIEW MODAL (Hasil foto sebelum disimpan dengan metadata kompresi)
+       ========================================================================= -->
+  <div class="modal-backdrop" id="preview-modal" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <h2 class="modal-title">Pratinjau Foto & Stempel</h2>
+          <p class="modal-subtitle" id="preview-filename">GEO_20261020_193351.jpg</p>
+        </div>
+        <button class="modal-close-btn" id="btn-close-preview">&times;</button>
+      </div>
+
+      <div class="modal-body preview-body">
+        <!-- Rendered Processed Photo with Watermark -->
+        <div class="preview-image-wrap">
+          <img id="preview-img" src="" alt="Pratinjau Foto">
+        </div>
+
+        <!-- Compression & Quality Stats Card -->
+        <div class="stats-card">
+          <div class="stat-item">
+            <span class="stat-label">Ukuran Berkas</span>
+            <span class="stat-value highlight" id="preview-filesize">0 KB</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Target Ukuran</span>
+            <span class="stat-value" id="preview-target-size">Maks. 200 KB</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Status Kompresi</span>
+            <span class="stat-badge success" id="preview-status-badge">✅ Target Tercapai</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Dimensi Foto</span>
+            <span class="stat-value" id="preview-dimensions">1920 × 1080</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="btn-retake">
+          🔄 Ambil Ulang
+        </button>
+        <button class="btn btn-outline" id="btn-share-photo">
+          📤 Bagikan
+        </button>
+        <button class="btn btn-primary" id="btn-save-gallery">
+          💾 Simpan ke Galeri
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       GALLERY MODAL (Riwayat foto yang tersimpan dalam album iNDRIASTIGPSMAP)
+       ========================================================================= -->
+  <div class="modal-backdrop" id="gallery-modal" style="display: none;">
+    <div class="modal-card gallery-modal-card">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <h2 class="modal-title">Galeri iNDRIASTIGPSMAP</h2>
+          <p class="modal-subtitle" id="gallery-subtitle">Tersimpan di Galeri Android / Pictures / iNDRIASTIGPSMAP</p>
+        </div>
+        <button class="modal-close-btn" id="btn-close-gallery">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="gallery-empty-state" id="gallery-empty" style="display: none;">
+          <span class="empty-icon">📷</span>
+          <h3>Belum Ada Foto</h3>
+          <p>Ambil foto dengan tombol rana di layar kamera untuk memulai dokumentasi GPS.</p>
+        </div>
+        <div class="gallery-grid" id="gallery-grid"></div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="btn-gallery-done">Tutup</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       SETTINGS MODAL (Konfigurasi kompresi, stempel, catatan lapangan)
+       ========================================================================= -->
+  <div class="modal-backdrop" id="settings-modal" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <h2 class="modal-title">Pengaturan Aplikasi</h2>
+          <p class="modal-subtitle">Konfigurasi Stempel, Kompresi, dan Peta</p>
+        </div>
+        <button class="modal-close-btn" id="btn-close-settings">&times;</button>
+      </div>
+
+      <div class="modal-body settings-body">
+        
+        <!-- Target Compression Setting -->
+        <div class="setting-group">
+          <label class="setting-label">Target Ukuran Kompresi Foto</label>
+          <p class="setting-desc">Kompresi adaptif bertahap (kualitas & resolusi) dengan mempertahankan aspek rasio.</p>
+          <div class="radio-pill-group">
+            <label class="radio-pill">
+              <input type="radio" name="targetSize" value="150">
+              <span>150 KB</span>
+            </label>
+            <label class="radio-pill">
+              <input type="radio" name="targetSize" value="200" checked>
+              <span>200 KB (Wajib)</span>
+            </label>
+            <label class="radio-pill">
+              <input type="radio" name="targetSize" value="300">
+              <span>300 KB</span>
+            </label>
+            <label class="radio-pill">
+              <input type="radio" name="targetSize" value="500">
+              <span>500 KB</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Custom Note / Project Title -->
+        <div class="setting-group">
+          <label class="setting-label" for="input-custom-note">Catatan / Keterangan Lapangan</label>
+          <p class="setting-desc">Teks tambahan yang ikut dicetak pada watermark (nama instansi/survei).</p>
+          <input type="text" class="input-text" id="input-custom-note" maxlength="80" placeholder="Contoh: Survei Lapangan Bengkulu">
+        </div>
+
+        <!-- Watermark Options -->
+        <div class="setting-group">
+          <label class="setting-label">Elemen Watermark Stempel Foto</label>
+          
+          <label class="toggle-row">
+            <span>Nama Aplikasi (iNDRIASTIGPSMAP — INDRI ASTI)</span>
+            <input type="checkbox" id="toggle-wm-brand" checked>
+          </label>
+          
+          <label class="toggle-row">
+            <span>Koordinat Lintang & Bujur (Latitude / Longitude)</span>
+            <input type="checkbox" id="toggle-wm-coords" checked>
+          </label>
+
+          <label class="toggle-row">
+            <span>Akurasi GPS & Elevasi (Ketinggian)</span>
+            <input type="checkbox" id="toggle-wm-metrics" checked>
+          </label>
+
+          <label class="toggle-row">
+            <span>Waktu & Tanggal Lokal</span>
+            <input type="checkbox" id="toggle-wm-time" checked>
+          </label>
+
+          <label class="toggle-row">
+            <span>Peta Mini / Radar Kompas Taktis</span>
+            <input type="checkbox" id="toggle-wm-map" checked>
+          </label>
+        </div>
+
+        <!-- Map Mode -->
+        <div class="setting-group">
+          <label class="setting-label">Tampilan Peta Mini Stempel</label>
+          <p class="setting-desc">100% offline radar taktis satelit bawaan tanpa memerlukan koneksi atau kuota data.</p>
+          <select class="input-select" id="select-map-mode">
+            <option value="radar" selected>Radar Taktis Offline (Direkomendasikan)</option>
+            <option value="osm">Peta Jalan OpenStreetMap (Hanya jika ada Internet)</option>
+            <option value="none">Tanpa Peta Mini (Hanya Teks Koordinat)</option>
+          </select>
+        </div>
+
+        <!-- Info & Privacy -->
+        <div class="setting-info-box">
+          <strong>🔒 100% Privasi & Lokal</strong>
+          <p>Seluruh foto, stempel, dan koordinat GPS diproses langsung di HP Android Anda. Tidak ada data yang dikirim ke server luar.</p>
+        </div>
+
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-primary" id="btn-save-settings">Simpan Pengaturan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notification Toast -->
+  <div class="toast-message" id="toast-message"></div>
+
+  <!-- Main JavaScript File -->
+  <script src="script.js"></script>
+</body>
+</html>
